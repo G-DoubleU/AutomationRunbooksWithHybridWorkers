@@ -6,15 +6,10 @@ terraform {
     }
   }
   required_version = ">=1.1.0"
-  backend "azurerm" { #remote state config
-    resource_group_name  = "tfstate"
-    storage_account_name = "tfstaterv1ss"
-    container_name       = "tfstate"
-    key                  = "aar-akv-pe-hw.tfstate"
   }
-}
 
-data "azurerm_client_config" "current" {} #needed so we can later reference things like tenant ID 
+
+data "azurerm_client_config" "current" {}
 
 provider "azurerm" {
   features {}
@@ -28,7 +23,7 @@ provider "random" {}
 #----------------------------------------------------
 resource "azurerm_resource_group" "rg" {
   name     = "hybrid-worker-test-rg"
-  location = "eastus"
+  location = var.location
 }
 
 resource "azurerm_virtual_network" "vnet" {
@@ -38,12 +33,12 @@ resource "azurerm_virtual_network" "vnet" {
   address_space       = ["10.0.0.0/24"]
 }
 
-resource "azurerm_subnet" "subnet" { #Doing this instead of inline subnet above ^ as it will be easier to reference later
+resource "azurerm_subnet" "subnet" { 
   name                              = "hybrid-worker-test-subnet1"
   resource_group_name               = azurerm_resource_group.rg.name
   virtual_network_name              = azurerm_virtual_network.vnet.name
   address_prefixes                  = ["10.0.0.0/26"]
-  private_endpoint_network_policies = "Disabled" #Check this if things don't work 
+  private_endpoint_network_policies = "Disabled" 
 }
 
 resource "random_uuid" "random" {}
@@ -55,13 +50,13 @@ resource "azurerm_key_vault" "kv" {
   name                          = "hybrid-worker-test-kv"
   location                      = azurerm_resource_group.rg.location
   resource_group_name           = azurerm_resource_group.rg.name
-  tenant_id                     = data.azurerm_client_config.current.tenant_id #Lets us pull information from our currently authenticated azure session, in this case tenant ID 
+  tenant_id                     = data.azurerm_client_config.current.tenant_id
   sku_name                      = "standard"
   rbac_authorization_enabled    = true
   public_network_access_enabled = false
 }
 
-resource "azurerm_key_vault_secret" "secret" { #Just using this so I can later confirm that the hybrid worker can access the KV 
+resource "azurerm_key_vault_secret" "secret" {
   name         = "test-secret"
   value        = "Hello there! "
   key_vault_id = azurerm_key_vault.kv.id
@@ -74,9 +69,9 @@ resource "azurerm_role_assignment" "aa_vm" {
 }
 
 resource "azurerm_role_assignment" "kv_self_admin" {
-  scope                = azurerm_key_vault.kv.id #Terraform is smart enough to know that it map dependencies and do things in order
+  scope                = azurerm_key_vault.kv.id 
   role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id #This references whoever is currently authenticated to run this terraform 
+  principal_id         = data.azurerm_client_config.current.object_id 
 }
 
 resource "azurerm_role_assignment" "aa_secrets_reader" {
@@ -93,10 +88,10 @@ resource "azurerm_windows_virtual_machine" "vm" {
   computer_name       = "workervm"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  zone                = "2"
-  size                = "Standard_D2s_v3"
-  admin_username      = "geoff" #Redact, ideally would do a more complex config like pull these from an existing KV 
-  admin_password      = "West_micr16!"
+  zone                = var.vm_zone
+  size                = var.vm_size
+  admin_username      = var.vm_admin_un 
+  admin_password      = var.vm_admin_pw
   network_interface_ids = [
     azurerm_network_interface.vnic.id
   ]
@@ -119,7 +114,7 @@ resource "azurerm_windows_virtual_machine" "vm" {
 
 }
 
-resource "azurerm_virtual_machine_extension" "powershell_modules" { #This part could not work, not sure
+resource "azurerm_virtual_machine_extension" "powershell_modules" { 
   name                 = "PowerShellModules"
   virtual_machine_id   = azurerm_windows_virtual_machine.vm.id
   publisher            = "Microsoft.Compute"
@@ -182,9 +177,9 @@ resource "azurerm_automation_account" "aa" {
   name                = "hybrid-worker-test-aa"
   resource_group_name = azurerm_resource_group.rg.name
   location            = azurerm_resource_group.rg.location
-  sku_name            = "Free"
+  sku_name            = var.automation_account_sku
   identity {
-    type = "SystemAssigned" #Need this so we can give the AA access to retrieve KV secrets and such 
+    type = "SystemAssigned"
   }
 }
 
@@ -259,7 +254,7 @@ resource "azurerm_automation_schedule" "start_vm_schedule" {
   resource_group_name     = azurerm_resource_group.rg.name
   automation_account_name = azurerm_automation_account.aa.name
   frequency               = "OneTime"
-  start_time              = "2026-01-24T15:25:00-06:00"
+  start_time              = var.start_vm_time
   timezone                = "America/Chicago"
 }
 
@@ -268,7 +263,7 @@ resource "azurerm_automation_schedule" "test_script_schedule" {
   resource_group_name     = azurerm_resource_group.rg.name
   automation_account_name = azurerm_automation_account.aa.name
   frequency               = "OneTime"
-  start_time              = "2026-01-24T15:33:00-06:00"
+  start_time              = var.script_start_time
   timezone                = "America/Chicago"
 }
 
@@ -277,7 +272,7 @@ resource "azurerm_automation_schedule" "deallo_vm_schedule" {
   resource_group_name     = azurerm_resource_group.rg.name
   automation_account_name = azurerm_automation_account.aa.name
   frequency               = "OneTime"
-  start_time              = "2026-01-24T15:38:00-06:00"
+  start_time              = var.deallocate_vm_time
   timezone                = "America/Chicago"
 }
 
