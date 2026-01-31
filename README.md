@@ -34,8 +34,4 @@ terraform destroy
 
 ## Blog Post
 
-Read more:
-
-## License
-
-MIT
+Read more: [gwestmoreland.dev](https://gwestmoreland.dev/p/azure-automation-with-hybrid-workers-and-runbooks)
